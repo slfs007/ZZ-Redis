@@ -65,6 +65,204 @@ static unsigned long _dictNextPower(unsigned long size);
 static int _dictKeyIndex(dict *ht, const void *key);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
+/* -------------------------- Zigzag functions -------------------------------- */
+#define OP_DEL      0
+#define OP_UPDATE   1
+#define OP_W2D      2
+#define OP_MAX      3
+int (*StateConvertMatrix[DE_MAX][OP_MAX])(dict *d,dictEntry *,void *);
+/*Normal Function*/
+static int _dictEntryStateNormalDel(dict *d,dictEntry *de,void *val)
+{
+    assert( val == NULL);
+    DE_NORMAL_ASSERT(de);
+
+    dictFreeKey(d,de);
+    //free val
+    if (d->type->valDestructor){
+        d->type->valDestructor(d->privdata,de->v.val[0]);
+    }
+    free(de);
+    return 1;
+}
+static int _dictEntryStateNormalUpdate(dict *d,dictEntry *de,void *val)
+{
+    assert( val != NULL);
+    DE_NORMAL_ASSERT(de);
+
+    if (d->type->valDestructor){
+        d->type->valDestructor(d->privdata,de->v.val[0]);
+    }
+    dictSetVal(d,de,val);
+    DE_NORMAL_ASSERT(de);
+    return 1;
+}
+/*Empty_n Function*/
+static int _dictEntryStateEmptyNUpdate(dict *d,dictEntry *de,void *val)
+{
+    assert( val != NULL);
+    DE_EMPTY_N_ASSERT(de);
+    dictSetVal(d,de,val);
+    de->state = DE_NORMAL;
+    DE_NORMAL_ASSERT(de);
+    return 1;
+}
+static int _dictEntryStateEmptyNDel(dict *d,dictEntry *de,void *val)
+{
+    assert( val == NULL);
+    DE_EMPTY_N_ASSERT(de);
+    dictFreeKey(d,de);
+    return 1;
+}
+/*Empty_w Function*/
+
+static int _dictEntryStateEmptyWUpdate(dict *d,dictEntry *de,void *val)
+{
+    assert(DICT_CKP == d->state);
+    assert(val != NULL);
+    DE_EMPTY_W_ASSERT(de);
+
+    dictSetVal(d,de,val);
+    de->state = DE_UPDATED;
+    DE_UPDATED_ASSERT(de);
+    return 1;
+}
+static int _dictEntryStateEmptyWW2D(dict *d,dictEntry *de,void *val)
+{
+    assert(DICT_CKP == d->state);
+    assert(val == NULL);
+    DE_EMPTY_W_ASSERT(de);
+    if (d->type->valDestructor){
+        d->type->valDestructor(d->privdata,de->v.val[!de->mw]);
+    }
+    de->v.val[0] = de->v.val[1] = NULL;
+    DE_EMPTY_N_ASSERT(de);
+    return 1;
+}
+/*Updated Function*/
+
+static int _dictEntryStateUpdatedUpdate(dict *d,dictEntry *de,void *val)
+{
+    assert(val != NULL);
+    assert(DICT_CKP == d->state);
+    DE_UPDATED_ASSERT(de);
+
+    dictSetVal(d,de,val);
+
+    DE_UPDATED_ASSERT(de);
+    return 1;
+}
+
+static int _dictEntryStateUpdatedDel(dict *d,dictEntry *de,void *val)
+{
+    assert(val == NULL);
+    assert(DICT_CKP == d->state);
+    DE_UPDATED_ASSERT(de);
+
+    if (d->type->valDestructor){
+        d->type->valDestructor(d->privdata,de->v.val[de->mw]);
+    }
+    de->v.val[de->mw] = NULL;
+    de->state = DE_EMPTY_W;
+
+    DE_EMPTY_W_ASSERT(de);
+    return 1;
+}
+static int _dictEntryStateUpdatedW2D(dict *d,dictEntry *de,void *val)
+{
+    assert(val == NULL);
+    assert(DICT_CKP == d->state);
+    DE_UPDATED_ASSERT(de);
+
+    if (d->type->valDestructor){
+        d->type->valDestructor(d->privdata,de->v.val[!de->mw]);
+    }
+    de->v.val[!de->mw] = de->v.val[de->mw];
+    de->state = DE_NORMAL;
+    DE_NORMAL_ASSERT(de);
+    return 1;
+}
+/*Write Function*/
+static int _dictEntryStateWriteUpdate(dict *d,dictEntry *de,void *val)
+{
+    assert(val != NULL);
+    assert(DICT_CKP == d->state);
+    DE_WRITE_ASSERT(de);
+
+    dictSetVal(d,de,val);
+    de->state = DE_UPDATED;
+    DE_UPDATED_ASSERT(de);
+    return 1;
+}
+static int _dictEntryStateWriteDel(dict *d,dictEntry *de,void *val)
+{
+    assert(val == NULL);
+    assert(DICT_CKP == d->state);
+    DE_WRITE_ASSERT(de);
+
+    de->v.val[de->mw] = NULL;
+    de->state = DE_EMPTY_W;
+    DE_EMPTY_W_ASSERT(de);
+    return 1;
+}
+static int _dictEntryStateWriteW2D(dict *d,dictEntry *de,void *val)
+{
+    assert(val == NULL);
+    assert(DICT_CKP == d->state);
+    DE_WRITE_ASSERT(de);
+
+    de->state = DE_NORMAL;
+    DE_NORMAL_ASSERT(de);
+    return 1;
+
+}
+/*Function Matrix*/
+
+void _StateConvertMatrixInit( void)
+{
+    static unsigned char init = 1;
+    if (init)
+    {
+        init = 0;
+        memset(StateConvertMatrix,0,sizeof(StateConvertMatrix));
+        //normal
+        StateConvertMatrix[DE_NORMAL][OP_DEL]       = _dictEntryStateNormalDel;
+        StateConvertMatrix[DE_NORMAL][OP_UPDATE]    = _dictEntryStateNormalUpdate;
+
+        //empty_n
+        StateConvertMatrix[DE_EMPTY_N][OP_UPDATE]   = _dictEntryStateEmptyNUpdate;
+        StateConvertMatrix[DE_EMPTY_N][OP_DEL]      = _dictEntryStateEmptyNDel;
+        //empty_w
+
+        StateConvertMatrix[DE_EMPTY_W][OP_UPDATE]   = _dictEntryStateEmptyWUpdate;
+        StateConvertMatrix[DE_EMPTY_W][OP_W2D]      = _dictEntryStateEmptyWW2D;
+        //updated
+        StateConvertMatrix[DE_UPDATED][OP_DEL]      = _dictEntryStateUpdatedDel;
+        StateConvertMatrix[DE_UPDATED][OP_UPDATE]   = _dictEntryStateUpdatedUpdate;
+        StateConvertMatrix[DE_UPDATED][OP_W2D]      = _dictEntryStateUpdatedW2D;
+        //write
+        StateConvertMatrix[DE_WRITE][OP_DEL]        = _dictEntryStateWriteDel;
+        StateConvertMatrix[DE_WRITE][OP_UPDATE]     = _dictEntryStateWriteUpdate;
+        StateConvertMatrix[DE_WRITE][OP_W2D]        = _dictEntryStateWriteW2D;
+    }
+}
+static int _dictEntryStateConvert(dict *d,dictEntry *de,unsigned char operation,void *val)
+{
+    assert( operation < OP_MAX);//server_state and de_state should be check outside.
+
+    if (StateConvertMatrix[de->state][operation])
+        return StateConvertMatrix[de->state][operation](d,de,val);
+    else{
+        printf("FATAL ERROR:Access a invalid function in StateConvertMatrix:%d,%d.\n",(int)de->state,(int)operation);
+        exit(1);
+    }
+}
+
+/*ZZ modify Function*/
+void dictFreeVal(dict *d, dictEntry *entry)
+{
+
+}
 /* -------------------------- hash functions -------------------------------- */
 
 /* Thomas Wang's 32 bit Mix Function */
@@ -178,12 +376,14 @@ dict *dictCreate(dictType *type,
 int _dictInit(dict *d, dictType *type,
         void *privDataPtr)
 {
+    _StateConvertMatrixInit();
     _dictReset(&d->ht[0]);
     _dictReset(&d->ht[1]);
     d->type = type;
     d->privdata = privDataPtr;
     d->rehashidx = -1;
     d->iterators = 0;
+    d->state = DICT_NORMAL;
     return DICT_OK;
 }
 

@@ -44,10 +44,30 @@
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
+#define DE_NORMAL   0
+#define DE_EMPTY_N  1
+#define DE_EMPTY_W  2
+#define DE_UPDATED  3
+#define DE_WRITE    4
+#define DE_MAX      5
+
+#define DE_NORMAL_ASSERT(de)     assert(de->v.val[0] == de->v.val[1] && de->v.val[0] != NULL)
+#define DE_EMPTY_N_ASSERT(de)    assert(de->v.val[0] == de->v.val[1] && de->v.val[0] == NULL)
+#define DE_EMPTY_W_ASSERT(de)    assert(de->v.val[0] != de->v.val[1] && (de->v.val[0] == NULL || de->v.val[1] == NULL))
+#define DE_UPDATED_ASSERT(de)    assert(de->v.val[0] != de->v.val[1] && de->v.val[0] != NULL && de->v.val[1] != NULL)
+#define DE_WRITE_ASSERT(de)      assert(de->v.val[0] == de->v.val[1] && de->v.val[0] != NULL)
+
+#define DE_BUSY 0
+#define DE_FREE 1
+
 typedef struct dictEntry {
     void *key;
+    unsigned char mr;
+    unsigned char mw;
+    unsigned char access;
+    unsigned char state;
     union {
-        void *val;
+        void *val[2];
         uint64_t u64;
         int64_t s64;
         double d;
@@ -71,9 +91,16 @@ typedef struct dictht {
     unsigned long size;
     unsigned long sizemask;
     unsigned long used;
+
 } dictht;
 
+#define DICT_NORMAL 0
+#define DICT_CKP    1
+
 typedef struct dict {
+    //ZZ add
+    unsigned char state;
+
     dictType *type;
     void *privdata;
     dictht ht[2];
@@ -100,15 +127,15 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
-#define dictFreeVal(d, entry) \
-    if ((d)->type->valDestructor) \
-        (d)->type->valDestructor((d)->privdata, (entry)->v.val)
+void dictFreeVal(dict *d, dictEntry *entry);
 
 #define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
-        entry->v.val = (d)->type->valDup((d)->privdata, _val_); \
+        entry->v.val[entry->mw] = (d)->type->valDup((d)->privdata, _val_); \
     else \
-        entry->v.val = (_val_); \
+        entry->v.val[entry->mw] = (_val_); \
+    entry->mr = entry->mw;   \
+    entry->v.val[!entry->mw] = entry->v.val[entry->mw]; \
 } while(0)
 
 #define dictSetSignedIntegerVal(entry, _val_) \
@@ -138,7 +165,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)
-#define dictGetVal(he) ((he)->v.val)
+#define dictGetVal(he) ((he)->v.val[he->mr])
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)
