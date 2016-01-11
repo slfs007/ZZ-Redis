@@ -255,11 +255,7 @@ int dictEntryStateConvert(dict *d,dictEntry *de,unsigned char operation,void *va
     }
 }
 
-/*ZZ modify Function*/
-void dictFreeVal(dict *d, dictEntry *entry)
-{
 
-}
 /* -------------------------- hash functions -------------------------------- */
 
 /* Thomas Wang's 32 bit Mix Function */
@@ -817,8 +813,8 @@ void dictReleaseIterator(dictIterator *iter)
     if (!(iter->index == -1 && iter->table == 0)) {
         if (iter->safe)
             iter->d->iterators--;
-        else
-            assert(iter->fingerprint == dictFingerprint(iter->d));
+//        else
+//            assert(iter->fingerprint == dictFingerprint(iter->d));
     }
     zfree(iter);
 }

@@ -829,7 +829,8 @@ int rdbSaveRio(rio *rdb, int *error) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
             long long expire;
-
+            if (de->state == DE_NORMAL || de->state == DE_EMPTY_N)
+                continue;
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;

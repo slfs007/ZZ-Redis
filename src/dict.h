@@ -51,6 +51,11 @@
 #define DE_WRITE    4
 #define DE_MAX      5
 
+#define OP_DEL      0
+#define OP_UPDATE   1
+#define OP_W2D      2
+#define OP_MAX      3
+
 #define DE_NORMAL_ASSERT(de)     assert(de->v.val[0] == de->v.val[1] && de->v.val[0] != NULL)
 #define DE_EMPTY_N_ASSERT(de)    assert(de->v.val[0] == de->v.val[1] && de->v.val[0] == NULL)
 #define DE_EMPTY_W_ASSERT(de)    assert(de->v.val[0] != de->v.val[1] && (de->v.val[0] == NULL || de->v.val[1] == NULL))
@@ -209,10 +214,7 @@ extern dictType dictTypeHeapStringCopyKey;
 extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapStringCopyKeyValue;
 /*ZZ ADD*/
-#define OP_DEL      0
-#define OP_UPDATE   1
-#define OP_W2D      2
-#define OP_MAX      3
+
 int dictEntryStateConvert(dict *d,dictEntry *de,unsigned char operation,void *val);
 /*ZZ END#define OP_DEL      0
 #define OP_UPDATE   1
