@@ -66,10 +66,7 @@ static int _dictKeyIndex(dict *ht, const void *key);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- Zigzag functions -------------------------------- */
-#define OP_DEL      0
-#define OP_UPDATE   1
-#define OP_W2D      2
-#define OP_MAX      3
+
 int (*StateConvertMatrix[DE_MAX][OP_MAX])(dict *d,dictEntry *,void *);
 /*Normal Function*/
 static int _dictEntryStateNormalDel(dict *d,dictEntry *de,void *val)
@@ -82,7 +79,7 @@ static int _dictEntryStateNormalDel(dict *d,dictEntry *de,void *val)
     if (d->type->valDestructor){
         d->type->valDestructor(d->privdata,de->v.val[0]);
     }
-    free(de);
+    zfree(de);
     return 1;
 }
 static int _dictEntryStateNormalUpdate(dict *d,dictEntry *de,void *val)
@@ -246,7 +243,7 @@ void _StateConvertMatrixInit( void)
         StateConvertMatrix[DE_WRITE][OP_W2D]        = _dictEntryStateWriteW2D;
     }
 }
-static int _dictEntryStateConvert(dict *d,dictEntry *de,unsigned char operation,void *val)
+int dictEntryStateConvert(dict *d,dictEntry *de,unsigned char operation,void *val)
 {
     assert( operation < OP_MAX);//server_state and de_state should be check outside.
 
@@ -525,6 +522,7 @@ int dictAdd(dict *d, void *key, void *val)
 
     if (!entry) return DICT_ERR;
     dictSetVal(d, entry, val);
+    entry->v.val[ !entry->mw] = entry->v.val[entry->mw];
     return DICT_OK;
 }
 
@@ -562,6 +560,10 @@ dictEntry *dictAddRaw(dict *d, void *key)
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = zmalloc(sizeof(*entry));
+    entry->access = DE_FREE;
+    entry->mr = 0;
+    entry->mw = 1;
+    entry->state = DE_NORMAL;
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -577,8 +579,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
  * operation. */
 int dictReplace(dict *d, void *key, void *val)
 {
-    dictEntry *entry, auxentry;
-
+    dictEntry *entry;
     /* Try to add the element. If the key
      * does not exists dictAdd will suceed. */
     if (dictAdd(d, key, val) == DICT_OK)
@@ -590,9 +591,11 @@ int dictReplace(dict *d, void *key, void *val)
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
-    auxentry = *entry;
-    dictSetVal(d, entry, val);
-    dictFreeVal(d, &auxentry);
+    /*ZZ MODIFY*/
+//    auxentry = *entry;
+//    dictSetVal(d, entry, val);
+//    dictFreeVal(d, &auxentry);
+    dictEntryStateConvert(d,entry,OP_UPDATE,val);
     return 0;
 }
 
@@ -631,10 +634,11 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                 else
                     d->ht[table].table[idx] = he->next;
                 if (!nofree) {
-                    dictFreeKey(d, he);
-                    dictFreeVal(d, he);
+                    dictEntryStateConvert(d,he,OP_DEL,NULL);
                 }
-                zfree(he);
+                else{
+                    zfree(he);
+                }
                 d->ht[table].used--;
                 return DICT_OK;
             }
@@ -667,9 +671,7 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
         if ((he = ht->table[i]) == NULL) continue;
         while(he) {
             nextHe = he->next;
-            dictFreeKey(d, he);
-            dictFreeVal(d, he);
-            zfree(he);
+            dictEntryStateConvert(d,he,OP_DEL,NULL);
             ht->used--;
             he = nextHe;
         }

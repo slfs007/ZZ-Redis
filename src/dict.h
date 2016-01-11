@@ -208,5 +208,14 @@ unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *pri
 extern dictType dictTypeHeapStringCopyKey;
 extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapStringCopyKeyValue;
-
+/*ZZ ADD*/
+#define OP_DEL      0
+#define OP_UPDATE   1
+#define OP_W2D      2
+#define OP_MAX      3
+int dictEntryStateConvert(dict *d,dictEntry *de,unsigned char operation,void *val);
+/*ZZ END#define OP_DEL      0
+#define OP_UPDATE   1
+#define OP_W2D      2
+#define OP_MAX      3*/
 #endif /* __DICT_H */

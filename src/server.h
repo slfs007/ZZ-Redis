@@ -695,8 +695,13 @@ struct clusterState;
 #ifdef _AIX
 #undef hz
 #endif
-
+#define SERVER_NORMAL   1
+#define SERVER_CKP      2
 struct redisServer {
+    /*ZZ ADD*/
+    unsigned char state;
+    pthread_t rdbThread_id;
+
     /* General */
     pid_t pid;                  /* Main process pid. */
     char *configfile;           /* Absolute config file path, or NULL */

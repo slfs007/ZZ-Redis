@@ -45,7 +45,58 @@
 #define RDB_LOAD_PLAIN  (1<<1)
 
 #define rdbExitReportCorruptRDB(reason) rdbCheckThenExit(reason, __LINE__);
+/*ZZ ADD*/
+void rdbPrepare( void )
+{
+    dictEntry *de;
+    dictIterator *di = NULL;
+    int j;
+    for (j = 0; j < server.dbnum; j++) {
+        redisDb *db = server.db+j;
+        dict *d = db->dict;
+        d->state = DICT_CKP;
+        if (dictSize(d) == 0) continue;
+        di = dictGetSafeIterator(d);
+        if (!di) return;
+         /* Iterate this DB writing every entry */
+        while((de = dictNext(di)) != NULL) {
 
+            de->state = DE_WRITE;
+            de->mw = !de->mr;
+
+        }
+        dictReleaseIterator(di);
+    }
+}
+void *rdbThread( void *arg)
+{
+    int old_type;
+    unsigned char expected_val;
+    serverLog(LL_NOTICE,"RDB thread start.");
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,&old_type);
+    while (1){
+        expected_val = SERVER_CKP;
+
+        if(__atomic_compare_exchange_1(&server.state,
+                                       &expected_val,
+                                       SERVER_CKP,
+                                       true,
+                                       __ATOMIC_SEQ_CST,
+                                       __ATOMIC_SEQ_CST)){
+
+            if ( rdbSave(server.rdb_filename) == C_OK){
+                serverLog(LL_WARNING,"Checkpoint Success.");
+            }else{
+                serverLog(LL_WARNING,"Checkpoint Fail!");
+            }
+            __atomic_store_1(&server.state,SERVER_NORMAL,__ATOMIC_SEQ_CST);
+        }else{
+            usleep(100000);
+        }
+    }
+    pthread_exit(NULL);
+}
+/*ZZ END*/
 void rdbCheckThenExit(char *reason, int where) {
     serverLog(LL_WARNING, "Corrupt RDB detected at rdb.c:%d (%s). "
         "Running 'redis-check-rdb %s'",
@@ -782,8 +833,10 @@ int rdbSaveRio(rio *rdb, int *error) {
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
+            dictEntryStateConvert(d,de,OP_W2D,NULL);
         }
         dictReleaseIterator(di);
+        d->state = DICT_NORMAL;
     }
     di = NULL; /* So that we don't release it again on error. */
 
